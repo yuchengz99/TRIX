@@ -62,6 +62,17 @@ python ./src/run_relation.py -c ./config/run_relation_transductive.yaml --datase
 python ./src/run_relation.py -c ./config/run_relation_inductive.yaml --dataset FB15k237Inductive --version v1 --epochs 3 --bpe 1000 --gpus [0] --ckpt /path/to/checkpoint
 ```
 
+## Relation-graph-free message passing
+`relation_graph_free: yes` in the `relation_model` section computes `RelNet` through the entity x relation incidences instead of the relation graph of `build_relation_graph` (same parameters, same output up to rounding, see `src/trix/relation_graph_free.py`). With `build_relation_graph: no` in the `dataset` section, the relation graph is not built at all. The released checkpoints work with both options.
+
+```yaml
+dataset:
+  build_relation_graph: no
+model:
+  relation_model:
+    relation_graph_free: yes
+```
+
 ## LLM Experiment
 Please download the CoDEx dataset from [CoDEx](https://github.com/tsafavi/codex).
 

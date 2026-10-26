@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from . import tasks, layers
+from . import tasks, layers, relation_graph_free
 from trix.base_nbfnet import BaseNBFNet
 
 class TRIX(nn.Module):
@@ -32,10 +32,9 @@ class TRIX(nn.Module):
         # part 1 embedding initialization
         h_index_r = batch[:, 0, 2]
         h_index, t_index, r_index = batch.unbind(-1)
-        rel_graph = data.relation_adj
 
         batch_size = len(h_index_r)
-        relation_representations = torch.ones(batch_size, rel_graph["hh"].num_nodes, self.feature_dim, device=h_index_r.device)
+        relation_representations = torch.ones(batch_size, int(data.num_relations), self.feature_dim, device=h_index_r.device)
 
         query = relation_representations[torch.arange(batch_size, device=r_index[:, 0].device), r_index[:, 0]]
         index_1 = h_index[:, 0].unsqueeze(-1).expand_as(query)
@@ -60,8 +59,9 @@ class TRIX(nn.Module):
 
 class RelNet(BaseNBFNet):
 
-    def __init__(self, input_dim, hidden_dims, num_relation=1, **kwargs):
+    def __init__(self, input_dim, hidden_dims, num_relation=1, relation_graph_free=False, **kwargs):
         super().__init__(input_dim, hidden_dims, num_relation, **kwargs)
+        self.relation_graph_free = relation_graph_free
 
         self.layers_hh = nn.ModuleList()
         for i in range(len(self.dims) - 1):
@@ -108,18 +108,22 @@ class RelNet(BaseNBFNet):
             )
 
     def forward(self, data, batch, relation_representations, node_representations):
-        rel_graph = data.relation_adj
         h_index = batch[:, 0, 2]
+        num_relations = int(data.num_relations)
 
         batch_size = len(h_index)
         query = torch.ones(h_index.shape[0], self.dims[0], device=h_index.device, dtype=torch.float)
-        boundary = torch.ones(batch_size, rel_graph["hh"].num_nodes, self.dims[0], device=h_index.device)
+        boundary = torch.ones(batch_size, num_relations, self.dims[0], device=h_index.device)
 
-        size = (rel_graph["hh"].num_nodes, rel_graph["hh"].num_nodes)
-        edge_weight_hh = torch.ones(rel_graph["hh"].num_edges, device=h_index.device)
-        edge_weight_ht = torch.ones(rel_graph["ht"].num_edges, device=h_index.device)
-        edge_weight_th = torch.ones(rel_graph["th"].num_edges, device=h_index.device)
-        edge_weight_tt = torch.ones(rel_graph["tt"].num_edges, device=h_index.device)
+        if self.relation_graph_free:
+            incidence = relation_graph_free.incidence(data)
+        else:
+            rel_graph = data.relation_adj
+            size = (num_relations, num_relations)
+            edge_weight_hh = torch.ones(rel_graph["hh"].num_edges, device=h_index.device)
+            edge_weight_ht = torch.ones(rel_graph["ht"].num_edges, device=h_index.device)
+            edge_weight_th = torch.ones(rel_graph["th"].num_edges, device=h_index.device)
+            edge_weight_tt = torch.ones(rel_graph["tt"].num_edges, device=h_index.device)
 
         hiddens = []
         layer_input = relation_representations
@@ -130,12 +134,15 @@ class RelNet(BaseNBFNet):
             self.layers_th[i].relation = node_representations
             self.layers_tt[i].relation = node_representations
 
-            hidden_hh = self.layers_hh[i](layer_input, query, boundary, rel_graph["hh"].edge_index, rel_graph["hh"].edge_type, size, edge_weight_hh)
-            hidden_ht = self.layers_ht[i](layer_input, query, boundary, rel_graph["ht"].edge_index, rel_graph["ht"].edge_type, size, edge_weight_ht)
-            hidden_th = self.layers_th[i](layer_input, query, boundary, rel_graph["th"].edge_index, rel_graph["th"].edge_type, size, edge_weight_th)
-            hidden_tt = self.layers_tt[i](layer_input, query, boundary, rel_graph["tt"].edge_index, rel_graph["tt"].edge_type, size, edge_weight_tt)
+            if self.relation_graph_free:
+                hidden = relation_graph_free.relnet_layer(self, i, layer_input, boundary, node_representations, incidence)
+            else:
+                hidden_hh = self.layers_hh[i](layer_input, query, boundary, rel_graph["hh"].edge_index, rel_graph["hh"].edge_type, size, edge_weight_hh)
+                hidden_ht = self.layers_ht[i](layer_input, query, boundary, rel_graph["ht"].edge_index, rel_graph["ht"].edge_type, size, edge_weight_ht)
+                hidden_th = self.layers_th[i](layer_input, query, boundary, rel_graph["th"].edge_index, rel_graph["th"].edge_type, size, edge_weight_th)
+                hidden_tt = self.layers_tt[i](layer_input, query, boundary, rel_graph["tt"].edge_index, rel_graph["tt"].edge_type, size, edge_weight_tt)
 
-            hidden = hidden_hh + hidden_ht + hidden_th + hidden_tt
+                hidden = hidden_hh + hidden_ht + hidden_th + hidden_tt
             if self.short_cut and hidden.shape == layer_input.shape:
                 hidden = hidden + layer_input
             hiddens.append(hidden)
@@ -143,7 +150,7 @@ class RelNet(BaseNBFNet):
             layer_input = hidden
             relation_representations = layer_input
             
-        node_query = query.unsqueeze(1).expand(-1, rel_graph["hh"].num_nodes, -1) # (batch_size, num_nodes, input_dim)
+        node_query = query.unsqueeze(1).expand(-1, num_relations, -1) # (batch_size, num_nodes, input_dim)
         if self.concat_hidden:
             output = torch.cat(hiddens + [node_query], dim=-1)
             output = self.mlp(output)

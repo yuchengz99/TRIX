@@ -145,6 +145,8 @@ def create_working_directory(cfg):
 def build_dataset(cfg):
     data_config = copy.deepcopy(cfg.dataset)
     cls = data_config.pop("class")
+    if not data_config.pop("build_relation_graph", True):
+        data_config["pre_transform"] = None
 
     ds_cls = getattr(datasets, cls)
     dataset = ds_cls(**data_config)

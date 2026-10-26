@@ -36,7 +36,7 @@ class GrailInductiveDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return "data.pt"
+        return "data.pt" if self.pre_transform is not None else "data_no_relation_graph.pt"
 
     @property
     def raw_file_names(self):
@@ -151,8 +151,8 @@ class FB15k237Inductive(GrailInductiveDataset):
 
     name = "IndFB15k237"
 
-    def __init__(self, root, version):
-        super().__init__(root, version)
+    def __init__(self, root, version, **kwargs):
+        super().__init__(root, version, **kwargs)
 
 class WN18RRInductive(GrailInductiveDataset):
 
@@ -166,8 +166,8 @@ class WN18RRInductive(GrailInductiveDataset):
 
     name = "IndWN18RR"
 
-    def __init__(self, root, version):
-        super().__init__(root, version)
+    def __init__(self, root, version, **kwargs):
+        super().__init__(root, version, **kwargs)
 
 class NELLInductive(GrailInductiveDataset):
     urls = [
@@ -179,11 +179,11 @@ class NELLInductive(GrailInductiveDataset):
     ]
     name = "IndNELL"
 
-    def __init__(self, root, version):
-        super().__init__(root, version)
+    def __init__(self, root, version, **kwargs):
+        super().__init__(root, version, **kwargs)
 
 
-def FB15k237(root):
+def FB15k237(root, pre_transform=build_relation_graph):
     dataset = RelLinkPredDataset(name="FB15k-237", root=root+"/fb15k237/")
     data = dataset.data
     train_data = Data(edge_index=data.edge_index, edge_type=data.edge_type, num_nodes=data.num_nodes,
@@ -197,14 +197,15 @@ def FB15k237(root):
                         num_relations=dataset.num_relations)
     
     # build relation graphs
-    train_data = build_relation_graph(train_data)
-    valid_data = build_relation_graph(valid_data)
-    test_data = build_relation_graph(test_data)
+    if pre_transform is not None:
+        train_data = pre_transform(train_data)
+        valid_data = pre_transform(valid_data)
+        test_data = pre_transform(test_data)
 
     dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
     return dataset
 
-def WN18RR(root):
+def WN18RR(root, pre_transform=build_relation_graph):
     dataset = WordNet18RR(root=root+"/wn18rr/")
     # convert wn18rr into the same format as fb15k-237
     data = dataset.data
@@ -228,9 +229,10 @@ def WN18RR(root):
                         num_relations=num_relations*2)
     
     # build relation graphs
-    train_data = build_relation_graph(train_data)
-    valid_data = build_relation_graph(valid_data)
-    test_data = build_relation_graph(test_data)
+    if pre_transform is not None:
+        train_data = pre_transform(train_data)
+        valid_data = pre_transform(valid_data)
+        test_data = pre_transform(test_data)
 
     dataset.data, dataset.slices = dataset.collate([train_data, valid_data, test_data])
     dataset.num_relations = num_relations * 2
@@ -350,7 +352,7 @@ class TransductiveDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return "data.pt"
+        return "data.pt" if self.pre_transform is not None else "data_no_relation_graph.pt"
 
 
 
@@ -379,8 +381,8 @@ class CoDExSmall(CoDEx):
     md5 = "63cd8186fc2aeddc154e20cf4a10087e"
     name = "codex-s"
 
-    def __init__(self, root):
-        super(CoDExSmall, self).__init__(root=root, size='s')
+    def __init__(self, root, **kwargs):
+        super(CoDExSmall, self).__init__(root=root, size='s', **kwargs)
 
 
 class CoDExMedium(CoDEx):
@@ -392,8 +394,8 @@ class CoDExMedium(CoDEx):
     url = "https://zenodo.org/record/4281094/files/codex-m.tar.gz"
     md5 = "43e561cfdca1c6ad9cc2f5b1ca4add76"
     name = "codex-m"
-    def __init__(self, root):
-        super(CoDExMedium, self).__init__(root=root, size='m')
+    def __init__(self, root, **kwargs):
+        super(CoDExMedium, self).__init__(root=root, size='m', **kwargs)
 
 
 class CoDExLarge(CoDEx):
@@ -405,8 +407,8 @@ class CoDExLarge(CoDEx):
     url = "https://zenodo.org/record/4281094/files/codex-l.tar.gz"
     md5 = "9a10f4458c4bd2b16ef9b92b677e0d71"
     name = "codex-l"
-    def __init__(self, root):
-        super(CoDExLarge, self).__init__(root=root, size='l')
+    def __init__(self, root, **kwargs):
+        super(CoDExLarge, self).__init__(root=root, size='l', **kwargs)
 
 
 class NELL995(TransductiveDataset):
@@ -713,7 +715,7 @@ class InductiveDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return "data.pt"
+        return "data.pt" if self.pre_transform is not None else "data_no_relation_graph.pt"
 
     def __repr__(self):
         return "%s(%s)" % (self.name, self.version)
@@ -1064,7 +1066,7 @@ class JointDataset(InMemoryDataset):
     }
 
     def __init__(self, root, graphs, transform=None, pre_transform=build_relation_graph):
-        self.graphs = [self.datasets_map[ds](root=root) for ds in graphs]
+        self.graphs = [self.datasets_map[ds](root=root, pre_transform=pre_transform) for ds in graphs]
         self.num_graphs = len(graphs)
         super().__init__(root, transform, pre_transform)
         self.data = torch.load(self.processed_paths[0])
@@ -1079,7 +1081,7 @@ class JointDataset(InMemoryDataset):
 
     @property
     def processed_file_names(self):
-        return "data.pt"
+        return "data.pt" if self.pre_transform is not None else "data_no_relation_graph.pt"
     
     def process(self):
         
